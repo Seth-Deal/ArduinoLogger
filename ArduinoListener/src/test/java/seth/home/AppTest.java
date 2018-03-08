@@ -1,4 +1,4 @@
-package com.seth.home;
+package seth.home;
 
 import junit.framework.Test;
 import junit.framework.TestCase;
