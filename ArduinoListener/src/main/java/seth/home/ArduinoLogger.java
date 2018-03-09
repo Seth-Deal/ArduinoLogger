@@ -19,7 +19,7 @@ import gnu.io.UnsupportedCommOperationException;
 
 public class ArduinoLogger implements SerialPortEventListener {
 	SerialPort serialPort;
-
+	final static int buffSize = 16;
 	// the logger
 	static Logger logger = Logger.getLogger(ArduinoLogger.class.getName());
 	/** The port we're normally going to use. */
@@ -116,8 +116,9 @@ public class ArduinoLogger implements SerialPortEventListener {
 			logger.fatal("Too many listeners", e);
 		}
 		serialPort.notifyOnDataAvailable(true);
-		
-		/* serialPort.notifyOnOutputEmpty(true);
+
+		/*
+		 * serialPort.notifyOnOutputEmpty(true);
 		 * serialPort.notifyOnBreakInterrupt(true);
 		 * serialPort.notifyOnCarrierDetect(true); serialPort.notifyOnCTS(true);
 		 * serialPort.notifyOnDSR(true); serialPort.notifyOnFramingError(true);
@@ -138,11 +139,12 @@ public class ArduinoLogger implements SerialPortEventListener {
 		}
 	}
 
-    /**
-     * Read data printed to the serial by arduino
-     *
-     * @param event The data available event
-     */
+	/**
+	 * Read data printed to the serial by arduino
+	 *
+	 * @param event
+	 *            The data available event
+	 */
 	public synchronized void dataAvailable(SerialPortEvent event) {
 		SpeedTestService service = SpeedTestService.getInstance();
 		while (service.getValues() == "WAIT_FOR_SPEED") {
@@ -154,7 +156,19 @@ public class ArduinoLogger implements SerialPortEventListener {
 			}
 		}
 		try {
-			printer.println("HelloArduino");
+			String print = String.format("%.1f", new Double(service.getDownload()).doubleValue()) + "/"
+					+ String.format("%.1f", new Double(service.getUpload()).doubleValue()) + " P"
+					+ String.format("%.2f", new Double(service.getPing()).doubleValue());
+			// String print = "HelloArduino";
+			// HelloArduino1234
+			for (int i = buffSize - print.length(); i > 0; i--) {
+				print += " ";
+			}
+			for (int i = print.length() - buffSize; i > 0; i--) {
+				print = print.substring(0, print.length() - 1);
+			}
+
+			printer.print(print);
 			String inputLine = input.readLine();
 			logger.info(inputLine.replaceAll("}", "," + service.getValues() + "}").replaceAll("temp", "\"temp\"")
 					.replaceAll("audio", "\"audio\""));
@@ -165,13 +179,16 @@ public class ArduinoLogger implements SerialPortEventListener {
 			return;
 		}
 	}
-    /**
-     * Handle output buffer empty events.
-     * @param event The output buffer empty event
-     */
-    protected void outputBufferEmpty(SerialPortEvent event) {
-        // Implement writing more data here
-    }
+
+	/**
+	 * Handle output buffer empty events.
+	 * 
+	 * @param event
+	 *            The output buffer empty event
+	 */
+	protected void outputBufferEmpty(SerialPortEvent event) {
+		// Implement writing more data here
+	}
 
 	public synchronized void serialEvent(SerialPortEvent event) {
 		//
@@ -188,8 +205,8 @@ public class ArduinoLogger implements SerialPortEventListener {
 			break;
 
 		/*
-		 * Other events, not implemented here -> 
-		 * case SerialPortEvent.BI: breakInterrupt(event); break;
+		 * Other events, not implemented here -> case SerialPortEvent.BI:
+		 * breakInterrupt(event); break;
 		 * 
 		 * case SerialPortEvent.CD: carrierDetect(event); break;
 		 * 
