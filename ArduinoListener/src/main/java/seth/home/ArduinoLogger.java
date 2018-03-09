@@ -1,31 +1,25 @@
 package seth.home;
 
 import java.io.BufferedReader;
-import java.io.BufferedWriter;
-import java.io.FileOutputStream;
 import java.io.IOException;
-import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
-import java.io.OutputStreamWriter;
 import java.io.PrintStream;
-import java.io.Writer;
-
-import gnu.io.CommPortIdentifier;
-import gnu.io.SerialPort;
-import gnu.io.SerialPortEvent;
-import gnu.io.SerialPortEventListener;
-
-import java.util.Date;
 import java.util.Enumeration;
-import java.util.concurrent.TimeUnit;
+import java.util.TooManyListenersException;
 
 import org.apache.log4j.Logger;
 
+import gnu.io.CommPortIdentifier;
+import gnu.io.PortInUseException;
+import gnu.io.SerialPort;
+import gnu.io.SerialPortEvent;
+import gnu.io.SerialPortEventListener;
+import gnu.io.UnsupportedCommOperationException;
+
 public class ArduinoLogger implements SerialPortEventListener {
-	String internet = "unchanged";
 	SerialPort serialPort;
-	Date lastChecked;
+	final static int buffSize = 16;
 	// the logger
 	static Logger logger = Logger.getLogger(ArduinoLogger.class.getName());
 	/** The port we're normally going to use. */
@@ -41,22 +35,21 @@ public class ArduinoLogger implements SerialPortEventListener {
 	private BufferedReader input;
 	/** The output stream to the port */
 	private OutputStream output;
+	private PrintStream printer;
 	/** Milliseconds to block while waiting for port open */
 	private static final int TIME_OUT = 2000;
 	/** Default bits per second for COM port. */
 	private static final int DATA_RATE = 9600;
-	private String upload;
-	private String download;
-	private String ping;
-	public static boolean isDouble(String str){
-	    try{
-	        Double.parseDouble(str);
-	        return true;
-	    }
-	    catch( Exception e ){
-	        return false;
-	    }
+
+	public static boolean isDouble(String str) {
+		try {
+			Double.parseDouble(str);
+			return true;
+		} catch (Exception e) {
+			return false;
+		}
 	}
+
 	public void initialize() {
 		// the next line is for Raspberry Pi and
 		// gets us into the while loop and was suggested here was suggested
@@ -81,24 +74,58 @@ public class ArduinoLogger implements SerialPortEventListener {
 			return;
 		}
 
+		// open serial port, and use class name for the appName.
 		try {
-			// open serial port, and use class name for the appName.
 			serialPort = (SerialPort) portId.open(this.getClass().getName(), TIME_OUT);
+		} catch (PortInUseException e2) {
+			logger.fatal("Port already in use: ", e2);
+			System.exit(1);
+		}
 
-			// set port parameters
+		// set port parameters
+		try {
 			serialPort.setSerialPortParams(DATA_RATE, SerialPort.DATABITS_8, SerialPort.STOPBITS_1,
 					SerialPort.PARITY_NONE);
-
-			// open the streams
-			input = new BufferedReader(new InputStreamReader(serialPort.getInputStream()));
-			output = serialPort.getOutputStream();
-
-			// add event listeners
-			serialPort.addEventListener(this);
-			serialPort.notifyOnDataAvailable(true);
-		} catch (Exception e) {
-			logger.error("Error opening the event listener: ", e);
+		} catch (UnsupportedCommOperationException e1) {
+			logger.fatal("Error setting data rate: ", e1);
+			System.exit(1);
 		}
+
+		// open the streams
+		try {
+			input = new BufferedReader(new InputStreamReader(serialPort.getInputStream()));
+		} catch (IOException e) {
+			logger.fatal("Can't open input stream: write-only", e);
+			input = null;
+		}
+
+		try {
+			output = serialPort.getOutputStream();
+			printer = new PrintStream(output, true);
+		} catch (IOException e) {
+			// TODO Auto-generated catch block
+			logger.fatal("Can't open output stream: read-only", e);
+			output = null;
+		}
+
+		// add event listeners
+		try {
+			serialPort.addEventListener(this);
+		} catch (TooManyListenersException e) {
+			// TODO Auto-generated catch block
+			logger.fatal("Too many listeners", e);
+		}
+		serialPort.notifyOnDataAvailable(true);
+
+		/*
+		 * serialPort.notifyOnOutputEmpty(true);
+		 * serialPort.notifyOnBreakInterrupt(true);
+		 * serialPort.notifyOnCarrierDetect(true); serialPort.notifyOnCTS(true);
+		 * serialPort.notifyOnDSR(true); serialPort.notifyOnFramingError(true);
+		 * serialPort.notifyOnOverrunError(true); serialPort.notifyOnParityError(true);
+		 * serialPort.notifyOnRingIndicator(true);
+		 */
+
 	}
 
 	/**
@@ -113,85 +140,91 @@ public class ArduinoLogger implements SerialPortEventListener {
 	}
 
 	/**
-	 * Handle an event on the serial port. Read the data and print it.
+	 * Read data printed to the serial by arduino
+	 *
+	 * @param event
+	 *            The data available event
 	 */
-	public synchronized void serialEvent(SerialPortEvent oEvent) {
-		if (oEvent.getEventType() == SerialPortEvent.DATA_AVAILABLE) {
+	public synchronized void dataAvailable(SerialPortEvent event) {
+		SpeedTestService service = SpeedTestService.getInstance();
+		while (service.getValues() == "WAIT_FOR_SPEED") {
 			try {
-				String inputLine = input.readLine();
-				getSpeed();
-				while(!isDouble(download)) {
-					getSpeed();
-				}
-				logger.info(inputLine.replaceAll("}",internet)
-						.replaceAll("temp", "\"temp\"")
-						.replaceAll("audio", "\"audio\""));
-			} catch (Exception e) {
-				logger.error("Error reading the line", e);
+				logger.debug("waiting for speed");
+				Thread.sleep(1000);
+			} catch (InterruptedException e) {
+				logger.fatal("Interupted: ", e);
 			}
 		}
-		// Ignore all the other eventTypes, but you should consider the other ones.
-	}
-
-	public void getSpeed() {
-		Date now = new Date();
-		if (now.getTime() - lastChecked.getTime() > 300000) {
-			String result = null;
-			String pg = "";
-			String up = "";
-			String down = "";
-			try {
-				Runtime r = Runtime.getRuntime();
-				Process p = r.exec("speedtest-cli --simple");
-				BufferedReader in = new BufferedReader(new InputStreamReader(p.getInputStream()));
-				String inputLine;
-				while ((inputLine = in.readLine()) != null) {
-					switch (inputLine.split(":")[0]) {
-					case "Ping":
-						pg =  inputLine.split(" ")[1];
-						break;
-					case "Download":
-						down =  inputLine.split(" ")[1];
-						break;
-					case "Upload":
-						up =  inputLine.split(" ")[1];
-						break;
-					default:
-					}
-					//System.out.println(inputLine);
-					result += inputLine;
-				}
-				in.close();
-
-			} catch (IOException e) {
-				System.out.println(e);
+		try {
+			String print = String.format("%.1f", new Double(service.getDownload()).doubleValue()) + "/"
+					+ String.format("%.1f", new Double(service.getUpload()).doubleValue()) + " P"
+					+ String.format("%.2f", new Double(service.getPing()).doubleValue());
+			// String print = "HelloArduino";
+			// HelloArduino1234
+			for (int i = buffSize - print.length(); i > 0; i--) {
+				print += " ";
 			}
-			upload=up;
-			download=down;
-			ping=pg;
-			lastChecked = now;
-			internet = ",\"ping\":\""+ping+"\",\"upload\":\""+upload+"\",\"download\":\""+download+"\"}";
+			for (int i = print.length() - buffSize; i > 0; i--) {
+				print = print.substring(0, print.length() - 1);
+			}
+
+			printer.print(print);
+			String inputLine = input.readLine();
+			logger.info(inputLine.replaceAll("}", "," + service.getValues() + "}").replaceAll("temp", "\"temp\"")
+					.replaceAll("audio", "\"audio\""));
+		} catch (Exception e) {
+			logger.error("Error reading the line, exiting", e);
+			close();
+			initialize();
 			return;
 		}
-		return;
 	}
 
-	public static void main(String[] args) throws Exception {
-		ArduinoLogger main = new ArduinoLogger();
-		main.lastChecked = new Date (0);
-		main.initialize();
-		Thread t = new Thread() {
-			public void run() {
-				// the following line will keep this app alive for 1000 seconds,
-				// waiting for events to occur and responding to them (printing incoming
-				// messages to console).
-				try {
-					Thread.sleep(1000000);
-				} catch (InterruptedException ie) {
-				}
-			}
-		};
-		// t.start();
-		logger.info("Started");
+	/**
+	 * Handle output buffer empty events.
+	 * 
+	 * @param event
+	 *            The output buffer empty event
+	 */
+	protected void outputBufferEmpty(SerialPortEvent event) {
+		// Implement writing more data here
 	}
+
+	public synchronized void serialEvent(SerialPortEvent event) {
+		//
+		// Dispatch event to individual methods. This keeps this ugly
+		// switch/case statement as short as possible.
+		//
+		switch (event.getEventType()) {
+		case SerialPortEvent.OUTPUT_BUFFER_EMPTY:
+			outputBufferEmpty(event);
+			break;
+
+		case SerialPortEvent.DATA_AVAILABLE:
+			dataAvailable(event);
+			break;
+
+		/*
+		 * Other events, not implemented here -> case SerialPortEvent.BI:
+		 * breakInterrupt(event); break;
+		 * 
+		 * case SerialPortEvent.CD: carrierDetect(event); break;
+		 * 
+		 * case SerialPortEvent.CTS: clearToSend(event); break;
+		 * 
+		 * case SerialPortEvent.DSR: dataSetReady(event); break;
+		 * 
+		 * case SerialPortEvent.FE: framingError(event); break;
+		 * 
+		 * case SerialPortEvent.OE: overrunError(event); break;
+		 * 
+		 * case SerialPortEvent.PE: parityError(event); break;
+		 * 
+		 * case SerialPortEvent.RI: ringIndicator(event); break; <- other events, not
+		 * implemented here
+		 */
+
+		}
+	}
+
 }
