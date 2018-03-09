@@ -159,7 +159,10 @@ public class ArduinoLogger implements SerialPortEventListener {
 			logger.info(inputLine.replaceAll("}", "," + service.getValues() + "}").replaceAll("temp", "\"temp\"")
 					.replaceAll("audio", "\"audio\""));
 		} catch (Exception e) {
-			logger.error("Error reading the line", e);
+			logger.error("Error reading the line, exiting", e);
+			close();
+			initialize();
+			return;
 		}
 	}
     /**

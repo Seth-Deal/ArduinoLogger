@@ -24,6 +24,7 @@ public class ArduinoLoggerController {
 				try {
 					Thread.sleep(1000000);
 				} catch (InterruptedException ie) {
+					logger.error("InterruptedException: ",ie);
 				}
 			}
 		};
