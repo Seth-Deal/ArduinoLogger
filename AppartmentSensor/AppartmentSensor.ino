@@ -10,7 +10,7 @@ const int tmpSensorPin = A5; //the analog pin the TMP36's Vout (sense) pin is co
 //the resolution is 10 mV / degree centigrade with a
 //500 mV offset to allow for negative temperatures
 const int micSensor = A0; //Mic is on pin 0
-const int knockSensor = A4; // the piezo is connected to analog pin 0
+const int knockSensor = A3; // the piezo is connected to analog pin 0
 
 const byte numChars = 16;
 char receivedChars[numChars];
@@ -39,6 +39,8 @@ void setup() {
 void loop() {
   bottom = readIn;
   tmpMessage = String(ReadTempF(tmpSensorPin)) + "F";
+  micRet[0] = 0;
+  micRet[1] = 0;
   seismographAndAudio(knockSensor, micSensor, 1000, micRet);
   seisMessage = String(micRet[1]) + "Db";
   top = tmpMessage + " " + seisMessage;
@@ -47,7 +49,7 @@ void loop() {
     String str(nullBuffer);
     readIn = str.substring(0,15);
   }
-  sendInfo = top + " " + String(micRet[1]) + "Hz";
+  sendInfo = top + " " + String(micRet[0]) + "Hz";
   Serial.println(sendInfo);
   lcd.clear();
   printLineOne(top);
