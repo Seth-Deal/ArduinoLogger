@@ -9,13 +9,23 @@ LiquidCrystal lcd(rs, en, d4, d5, d6, d7);
 const int tmpSensorPin = A5; //the analog pin the TMP36's Vout (sense) pin is connected to
 //the resolution is 10 mV / degree centigrade with a
 //500 mV offset to allow for negative temperatures
-
+const int micSensor = A0; //Mic is on pin 0
 const int knockSensor = A4; // the piezo is connected to analog pin 0
+
 const byte numChars = 16;
 char receivedChars[numChars];
 char nullBuffer[numChars] = "TEST";
 String readIn = "WAITING";
 boolean newData = false;
+int micRet[2] = {0,0};
+
+int knockReading = 0;
+int micReading = 0;
+String top = "WAITING";
+String bottom = "WAITING";
+String tmpMessage = "WAITING"; 
+String seisMessage = "WAITING";
+String sendInfo = "WAITING";
 /*
   setup() - this function runs once when you turn your Arduino on
   We initialize the serial connection with the computer
@@ -27,37 +37,39 @@ void setup() {
 }
 
 void loop() {
-  String top;
-  String bottom = readIn;
-  String tmpMessage = String(ReadTempF(tmpSensorPin)) + "F";
-  String seisMessage = String(seismograph(knockSensor, 1000)) + "Db";
+  bottom = readIn;
+  tmpMessage = String(ReadTempF(tmpSensorPin)) + "F";
+  seismographAndAudio(knockSensor, micSensor, 1000, micRet);
+  seisMessage = String(micRet[1]) + "Db";
   top = tmpMessage + " " + seisMessage;
   if (Serial.available() > 0) {
     Serial.readBytes(nullBuffer, numChars);
     String str(nullBuffer);
     readIn = str.substring(0,15);
   }
-  Serial.println(
-    "{temp:\"" + String(ReadTempF(tmpSensorPin)) + "\",audio:\""
-    + String(seismograph(knockSensor, 1000)) + "\"}");
-  //Serial.println(bottom);
+  sendInfo = top + " " + String(micRet[1]) + "Hz";
+  Serial.println(sendInfo);
   lcd.clear();
   printLineOne(top);
   printLineTwo(bottom);
 
 }
-int seismograph(int sensor, int delayTime) {
-  int maxReading = 0;
-  int sensorReading;
+
+void seismographAndAudio(int knock, int mic, int delayTime, int *data) {
   for (int i = 0; i <= delayTime; i++) {
-    sensorReading = analogRead(knockSensor);
-    if (sensorReading > maxReading) {
-      maxReading = sensorReading;
+    knockReading = analogRead(knock);
+    micReading = analogRead(mic); 
+    if (knockReading > data[0]) {
+      data[0] = knockReading;
+    }
+    if (micReading > data[1]) {
+      data[1] = micReading;
     }
     delay(1);
   }
-  return maxReading;
+
 }
+
 float ReadTempF(int sensor) {
   //getting the voltage reading from the temperature sensor
   int reading = analogRead(sensor);
